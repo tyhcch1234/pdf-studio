@@ -16,17 +16,21 @@ import queue
 import subprocess
 import sys
 import threading
+import traceback
 
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
+# make `import pipeline` work no matter where the script is launched from
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 import pymupdf
 
 from pipeline import ConvertOptions  # light import: no OCR models in the GUI process
 from pipeline.ops import split_a3, merge_pdfs, is_a3
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_TITLE = "PDF Studio"
 PAD = 12
 
@@ -372,7 +376,7 @@ class MergeTab(ttk.Frame):
         row.pack(fill="x", pady=(10, 0))
         ttk.Label(row, text="頁碼範圍（套用選取的檔案，例如 1-3,5；留空＝全部）").pack(anchor="w")
         self.range_var = tk.StringVar()
-        self.range_entry = ttk.Entry(row, textvariable=self.range_var)
+        self.range_entry = tk.Entry(row, textvariable=self.range_var, relief="solid", bd=1)
         self.range_entry.pack(fill="x", pady=(4, 0))
 
         actions = ttk.Frame(self)
@@ -593,8 +597,11 @@ class App(tk.Tk):
         self.nb = nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=PAD, pady=(4, PAD))
         self.convert = ConvertTab(nb, self)
+        self.update_idletasks()
         self.merge = MergeTab(nb, self)
+        self.update_idletasks()
         self.split = SplitTab(nb, self)
+        self.update_idletasks()
         nb.add(self.convert, text="1　PDF 轉 Word")
         nb.add(self.merge, text="2　合併 PDF")
         nb.add(self.split, text="3　A3 轉 A4")
@@ -618,9 +625,71 @@ def sys_platform() -> str:
     return sys.platform
 
 
+def selftest() -> int:
+    """檢查環境（不會開視窗）。有問題時把輸出整段貼回來即可。"""
+    print("PDF Studio 自我檢查")
+    print(f"  Python      : {sys.version.split()[0]}")
+    print(f"  platform    : {sys.platform}")
+    print(f"  base dir    : {BASE_DIR}")
+    ok = True
+    for mod in ("pymupdf", "docx", "numpy", "PIL"):
+        try:
+            m = __import__(mod)
+            print(f"  {mod:12}: OK {getattr(m, '__version__', '')}")
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            print(f"  {mod:12}: 缺少 -> {e}")
+
+    try:
+        caps = probe_capabilities()
+        print(f"  OCR 引擎    : {'就緒' if caps.get('ocr') else '未安裝'}")
+        print(f"  數式引擎    : {'就緒' if caps.get('formula') else '未安裝'}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  引擎檢查失敗: {e}")
+
+    # Tk 檢查放在子程序，Tk 崩潰也不會把整支程式帶走
+    probe = (
+        "import tkinter as tk;"
+        "r=tk.Tk();r.withdraw();r.update_idletasks();"
+        "print('TK_OK');r.destroy()"
+    )
+    try:
+        res = subprocess.run([sys.executable, "-c", probe], capture_output=True,
+                             text=True, timeout=30)
+        if "TK_OK" in (res.stdout or "") and res.returncode == 0:
+            print("  tkinter     : 視窗可建立")
+        else:
+            ok = False
+            print("  tkinter     : 視窗建立失敗")
+            print("     " + (res.stderr or res.stdout or "").strip().replace("\n", "\n     ")[:800])
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        print(f"  tkinter     : 檢查時發生錯誤 -> {e}")
+
+    print("\n結果：", "可以執行 python3 desktop.py" if ok else "請把上面內容貼回給我")
+    return 0 if ok else 1
+
+
 def main():
-    app = App()
-    # allow drag & drop of files where Tk supports it
+    if "--selftest" in sys.argv:
+        raise SystemExit(selftest())
+
+    try:
+        app = App()
+    except Exception:  # noqa: BLE001
+        detail = traceback.format_exc()
+        print(detail, file=sys.stderr)
+        try:
+            from tkinter import messagebox as mb
+
+            mb.showerror(
+                APP_TITLE,
+                "視窗無法建立。\n\n請執行：python3 desktop.py --selftest\n"
+                "再把輸出貼回給我。\n\n" + detail[-600:],
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        raise SystemExit(1)
     app.mainloop()
 
 

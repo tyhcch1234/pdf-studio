@@ -153,3 +153,20 @@ docx 內的文字與圖片、Word 方程式（含上標結構）、合併頁數�
 | 數學樣本（E=mc²、a²+b²=c²） | 2 條方程式，含上標結構（`m:sSup`） |
 | 中文雙欄 + 表格 | 左欄 → 方程式 → 右欄 → 結論，表格線不重複貼圖 |
 | A3 橫向 / 直向 / 旋轉 90° | 皆切成 2 張正確的 A4 |
+
+## 安裝與疑難排解
+
+```bash
+pip install -r requirements.txt
+python3 desktop.py --selftest     # 不開視窗，只檢查環境
+python3 desktop.py                # 開桌面視窗
+```
+
+| 情況 | 處理 |
+|---|---|
+| Windows / macOS | 直接可用（tkinter 隨 Python 附帶） |
+| Linux 開視窗報 `No module named tkinter` | `sudo apt install python3-tk`（Fedora：`python3-tkinter`） |
+| 開視窗時出現 `xcb ... append_pending_request` 或直接關閉 | 某些 Linux 的 Tk 版本在建立複雜視窗時會中止。先跑 `--selftest` 把輸出貼回；或用 `python3 cli.py`、`python3 server.py`（同一套轉檔程式，只是介面不同） |
+| OCR／數式顯示「未安裝」 | `pip install rapidocr-onnxruntime onnxruntime` 與 `pip install torch --index-url https://download.pytorch.org/whl/cpu` + `pip install pix2tex` |
+
+`--selftest` 會檢查：Python 版本、PyMuPDF/python-docx/numpy/Pillow、OCR 與數式引擎、以及 tkinter 能否建立視窗（在子程序檢查，不會拖垮主程式）。
