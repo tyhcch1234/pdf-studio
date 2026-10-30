@@ -8,6 +8,21 @@ Local web app with three PDF tools:
 | **合併 PDF** | 多檔依序合併，可調順序與頁碼範圍 | 瀏覽器（不上傳） |
 | **A3 → A4** | 沿頁面中線切成兩張 A4，支援橫向／直向與旋轉頁面 | 瀏覽器（不上傳） |
 
+## 使用方式（本機執行，不需要網頁或伺服器）
+
+```bash
+pip install -r requirements.txt
+
+python3 desktop.py            # 桌面視窗版（三個功能都有 GUI）
+python3 cli.py info           # 命令列版：檢查 OCR／數式引擎
+python3 cli.py word  a.pdf b.pdf -o out/
+python3 cli.py merge all.pdf a.pdf b.pdf
+python3 cli.py split a3.pdf -o out/
+```
+
+耗資源的引擎（OCR／數式辨識）在**子程序**執行，GUI 本身保持輕量、不會因為模型載入而卡住；
+轉檔過程中可以即時看到每頁進度與最後的統計（頁數、OCR 頁數、圖片數、方程式數）。
+
 ## 兩種轉檔引擎（都不需要外部伺服器）
 
 | 引擎 | 何時使用 | OCR | 數式 | 速度 |
@@ -35,13 +50,14 @@ python3 server.py          # http://127.0.0.1:8000
 - OCR 首次使用需載入約 6 MB 模型，之後快取。
 - 大檔（>50 頁）建議改用 `server.py`。
 
-## 啟動
+## 網頁版（選用）
 
 ```bash
-pip install -r requirements.txt
 python3 server.py            # 預設 http://127.0.0.1:8000
 PORT=9000 python3 server.py  # 換 port
 ```
+
+網頁只是同一套 `pipeline/` 的另一個介面；不想用瀏覽器時可忽略。
 
 第一次執行 PDF → Word 時，數式模型（pix2tex）會自動下載約 120 MB 權重到
 `site-packages/pix2tex/model/checkpoints`，之後即可離線使用。
