@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+jobs/
+tests/samples/*.pdf
+tests/out/*
+!tests/out/.gitkeep
+.DS_Store
+*.docx
+pdf-studio.zip

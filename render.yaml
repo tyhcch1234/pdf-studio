@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pdf-studio-api
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # lock this down to your Pages origin once it is live
+      - key: ALLOWED_ORIGINS
+        value: https://tyhcch1234.github.io
