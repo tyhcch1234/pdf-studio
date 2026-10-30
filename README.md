@@ -8,26 +8,32 @@ Local web app with three PDF tools:
 | **合併 PDF** | 多檔依序合併，可調順序與頁碼範圍 | 瀏覽器（不上傳） |
 | **A3 → A4** | 沿頁面中線切成兩張 A4，支援橫向／直向與旋轉頁面 | 瀏覽器（不上傳） |
 
-## 線上版（GitHub Pages）
+## 兩種轉檔引擎（都不需要外部伺服器）
 
-`https://tyhcch1234.github.io/pdf-studio/`
+| 引擎 | 何時使用 | OCR | 數式 | 速度 |
+|---|---|---|---|---|
+| **瀏覽器內建**（預設） | 直接開網頁，沒有跑 `server.py` 時自動啟用 | tesseract.js（WASM，內含 eng／繁中／簡中） | 保留為文字或圖片，**不會**變成 Word 方程式 | 較慢，一般頁面約 1–3 秒／頁 |
+| **本專案 `server.py`** | 自己在電腦上執行 `python3 server.py`（同一網址）時自動改用 | RapidOCR | pix2tex → OMML，可轉成 Word 方程式 | 快，數式品質最好 |
 
-- **合併 PDF**、**A3 → A4**：完全在瀏覽器執行（pdf-lib / pdf.js），Pages 上直接可用，不需後端。
-- **PDF → Word**：需要 Python 後端。页面載入後如果偵測不到服務，會自動展開「轉檔服務設定」，
-  把後端網址貼進去按「儲存並測試」即可（存在該瀏覽器的 localStorage，也可用 `?api=https://...` 直接指定）。
+兩者都用**本專案內的程式與程式庫**，沒有任何資料離開你的電腦；網頁不會呼叫 Render／Hugging Face 等外部主機。
 
-前端每次 push 到 `main` 都會由 `.github/workflows/pages.yml` 把 `web/` 發佈到 Pages。
+線上版：`https://tyhcch1234.github.io/pdf-studio/`（GitHub Pages 只有靜態檔，所以在那裡用的是瀏覽器內建引擎）
 
-### 部署後端（三選一）
+### 本機啟動（可選，換取更好的數式與 OCR）
 
-| 平台 | 方式 | 記憶體 | 備註 |
-|---|---|---|---|
-| Hugging Face Spaces | Docker SDK，上傳整個 repo | 免費 16 GB | 這個工作負載最保險，torch + OCR 模型吃記憶體 |
-| Render | 已附 `render.yaml`（Docker） | 免費 512 MB／Starter 2 GB | 免費方案大檔 OCR 可能 OOM |
-| 自己的機器 / VPS | `HOST=0.0.0.0 PORT=8000 ALLOWED_ORIGINS=https://tyhcch1234.github.io python3 server.py` | — | 也可用 `docker build -t pdf-studio .` |
+```bash
+pip install -r requirements.txt
+python3 server.py          # http://127.0.0.1:8000
+```
 
-部署完成後把網址填回網頁的設定欄位。`ALLOWED_ORIGINS` 請填 Pages 的網址（預設 `*` 方便測試）。
+页面會自動偵測同源的 `/api/capabilities`：偵測到就用 `server.py`，偵測不到就用瀏覽器引擎，不需要任何設定。
 
+### 瀏覽器引擎的限制
+
+- 數式不會變成 Word 方程式（瀏覽器跑不動 pix2tex），會保持為可編輯文字或圖片。
+- 表格框線不會重建為表格，只保留可見線條所裁出的圖片（或被跳過以避免重複）。
+- OCR 首次使用需載入約 6 MB 模型，之後快取。
+- 大檔（>50 頁）建議改用 `server.py`。
 
 ## 啟動
 

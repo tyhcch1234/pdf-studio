@@ -141,34 +141,42 @@
   PS.detectCapabilities = async function () {
     const ocr = PS.$("#cap-ocr");
     const fml = PS.$("#cap-formula");
+    const noteEl = PS.$("#engine-note");
+    const browserReady = !!(window.Tesseract && window.JSZip && window.pdfjsLib);
+
     try {
-      const res = await fetch(PS.apiUrl("/api/capabilities"), { cache: "no-store" });
+      const res = await fetch("/api/capabilities", { cache: "no-store" });
       if (!res.ok) throw new Error("bad status");
       const caps = await res.json();
       PS.caps = caps;
-      if (caps.ocr) {
-        ocr.textContent = "OCR 引擎：就緒";
-        ocr.className = "cap-pill ok";
-      } else {
-        ocr.textContent = "OCR 引擎：未安裝";
-        ocr.className = "cap-pill bad";
+      PS.engine = "server";
+      ocr.textContent = "本機服務：就緒";
+      ocr.className = "cap-pill ok";
+      fml.textContent = caps.formula ? "數式辨識：就緒" : "數式辨識：未安裝";
+      fml.className = "cap-pill " + (caps.formula ? "ok" : "bad");
+      if (noteEl) {
+        noteEl.textContent =
+          "轉檔引擎：本專案 server.py（完整品質，數式可轉成 Word 方程式）";
       }
-      if (caps.formula) {
-        fml.textContent = "數式辨識：就緒";
+      return PS.caps;
+    } catch (err) {
+      PS.caps = { ocr: browserReady, formula: false, offline: true };
+      PS.engine = browserReady ? "browser" : "none";
+      if (browserReady) {
+        ocr.textContent = "瀏覽器內建：就緒";
+        ocr.className = "cap-pill ok";
+        fml.textContent = "無需伺服器";
         fml.className = "cap-pill ok";
+        if (noteEl) {
+          noteEl.textContent =
+            "轉檔引擎：瀏覽器內建（OCR 與 Word 都在這個頁面完成，不上傳、不需要伺服器）。數式會保留為文字或圖片，不會變成 Word 方程式。";
+        }
       } else {
-        fml.textContent = "數式辨識：未安裝（數式將以圖片保留）";
+        ocr.textContent = "引擎未就緒";
+        ocr.className = "cap-pill bad";
+        fml.textContent = "請確認 vendor/ 檔案完整";
         fml.className = "cap-pill bad";
       }
-      return caps;
-    } catch (err) {
-      PS.caps = { ocr: false, formula: false, offline: true };
-      ocr.textContent = "轉檔服務：未連線";
-      ocr.className = "cap-pill bad";
-      fml.textContent = PS.isHosted() ? "請設定轉檔服務網址" : "請啟動 server.py";
-      fml.className = "cap-pill bad";
-      const box = PS.$("#api-panel");
-      if (box) box.open = true;
       return PS.caps;
     }
   };

@@ -37,8 +37,9 @@ def main() -> int:
 
         check("PDF Studio" in page.title(), "page loads from a static server")
         ocr = page.inner_text("#cap-ocr")
-        check("未連線" in ocr, f"backend correctly reported as offline ({ocr})")
-        check(page.locator("#api-panel").evaluate("el => el.open"), "settings panel opens automatically")
+        check("瀏覽器內建" in ocr, f"in-browser engine active ({ocr})")
+        note = page.inner_text("#engine-note")
+        check("不需要伺服器" in note, "engine note explains no server is needed")
 
         page.screenshot(path=os.path.join(OUT, "pages_offline.png"), full_page=True)
 
@@ -72,14 +73,22 @@ def main() -> int:
         sp = pymupdf.open(split_path)
         check(sp.page_count == 2 and abs(sp[0].rect.width - 595) < 3, "split works offline")
 
-        # conversion must fail politely, not with a JS error
+        # conversion must work with no backend at all
         page.click('.tab[data-panel="convert"]')
         page.set_input_files("#input-convert", [os.path.join(SAMPLES, "digital.pdf")])
         page.wait_for_timeout(300)
         page.click("#btn-convert")
-        page.wait_for_timeout(2500)
-        toast = page.locator(".toast").first
-        check(toast.count() > 0 and "未連線" in toast.inner_text(), "conversion explains the missing backend")
+        page.wait_for_selector("#results-convert .result", timeout=180000)
+        page.wait_for_timeout(500)
+        card = page.locator("#results-convert .result").first
+        with page.expect_download(timeout=60000) as dl3:
+            card.locator(".btn").first.click()
+        local_docx = os.path.join(OUT, "pages_local.docx")
+        dl3.value.save_as(local_docx)
+        import docx
+
+        text = "\n".join(x.text for x in docx.Document(local_docx).paragraphs)
+        check("Measurement Report" in text, "PDF to Word works in the browser")
 
         if errors:
             for e in errors[:5]:

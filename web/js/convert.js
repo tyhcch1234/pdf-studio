@@ -1,4 +1,6 @@
-/* Tab 1: PDF -> Word (server side pipeline) */
+/* Tab 1: PDF -> Word.
+   Two engines: the bundled server.py when it is reachable, otherwise a fully
+   in-browser pipeline (pdf.js + tesseract.js + JSZip). */
 (function () {
   const PS = window.PS;
   let seq = 0;
@@ -14,7 +16,7 @@
     let added = 0;
     incoming.forEach((f) => {
       if (!PS.isPdf(f)) { PS.toast(`略過非 PDF 檔案：${f.name}`, "err"); return; }
-      if (files.some((x) => x.file.name === f.name && x.file.size === f.file.size)) return;
+      if (files.some((x) => x.file.name === f.name && x.file.size === f.size)) return;
       files.push({ id: ++seq, file: f });
       added++;
     });
@@ -57,26 +59,109 @@
   function setBusy(state) {
     btn().dataset.busy = state ? "1" : "0";
     PS.btnBusy(btn(), state);
-    if (state) btn().querySelector(".btn-label").textContent = "轉換中…";
-    else btn().querySelector(".btn-label").textContent = "開始轉換";
+    btn().querySelector(".btn-label").textContent = state ? "轉換中…" : "開始轉換";
     btn().disabled = state ? true : files.length === 0;
   }
 
-  async function start() {
-    if (!files.length) return;
-    const results = PS.$("#results-convert");
-    results.innerHTML = "";
-    if (PS.caps && PS.caps.offline) {
-      PS.toast(
-        PS.isHosted()
-          ? "轉檔服務未連線：請在「轉檔服務設定」填入後端網址"
-          : "轉檔服務未連線，請先執行 python3 server.py",
-        "err"
-      );
-      const box = PS.$("#api-panel");
-      if (box) box.open = true;
-      return;
+  function chips(stats) {
+    const s = stats || {};
+    return [
+      `${s.pages || 0} 頁`,
+      s.ocr_pages ? `OCR ${s.ocr_pages} 頁` : null,
+      `${s.text_lines || 0} 段文字`,
+      s.images ? `${s.images} 張圖片` : null,
+      s.equations ? `${s.equations} 條方程式` : null,
+      s.equations_as_image ? `${s.equations_as_image} 條數式以圖片保留` : null,
+      s.size ? PS.fmtSize(s.size) : null,
+    ]
+      .filter(Boolean)
+      .map((t) => `<span class="chip${/圖片保留/.test(t) ? " warn" : ""}">${PS.escape(t)}</span>`)
+      .join("");
+  }
+
+  function resultCard({ title, stats, blob, url, filename, error }) {
+    const el = document.createElement("div");
+    el.className = "result" + (error ? " error" : "");
+    if (error) {
+      el.innerHTML = `
+        <div class="r-ico">!</div>
+        <div class="r-body">
+          <div class="r-title">${PS.escape(title)}</div>
+          <div class="r-sub">${PS.escape(error)}</div>
+        </div>`;
+      return el;
     }
+    el.innerHTML = `
+      <div class="r-ico">✓</div>
+      <div class="r-body">
+        <div class="r-title">${PS.escape(filename)}</div>
+        <div class="chips">${chips(stats)}</div>
+      </div>
+      <button class="btn primary">下載 .docx</button>`;
+    el.querySelector("button").addEventListener("click", () => {
+      if (blob) PS.download(blob, filename);
+      else PS.downloadUrl(url, filename);
+    });
+    if (stats && stats.warnings && stats.warnings.length) {
+      const box = document.createElement("div");
+      box.className = "warnbox";
+      box.textContent = "提醒：\n" + stats.warnings.slice(0, 6).join("\n");
+      el.querySelector(".r-body").appendChild(box);
+    }
+    return el;
+  }
+
+  /* ---------------- in-browser engine ---------------- */
+
+  async function runBrowser() {
+    const rows = listEl().querySelectorAll(".frow");
+    const wrap = PS.$("#results-convert");
+    wrap.innerHTML = "";
+    const opts = {
+      ocr: PS.$("#ocr-mode").value,
+      images: PS.$("#keep-images").checked,
+    };
+    setBusy(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i].file;
+        const row = rows[i];
+        if (row) row.querySelector(".fsub").textContent = "處理中…";
+        try {
+          const { blob, stats } = await PS.BrowserEngine.convertPdf(file, opts, (done, total, msg) => {
+            if (row) PS.progressRow(row, Math.round((done / total) * 100), msg);
+            note().textContent = msg;
+          });
+          if (row) {
+            row.querySelector(".bar").classList.add("done");
+            PS.progressRow(row, 100, "完成");
+            row.querySelector(".fsub").className = "fsub ok";
+          }
+          wrap.appendChild(
+            resultCard({
+              title: file.name,
+              filename: PS.stripExt(file.name) + ".docx",
+              stats,
+              blob,
+            })
+          );
+        } catch (err) {
+          if (row) {
+            row.querySelector(".fsub").className = "fsub err";
+            row.querySelector(".fsub").textContent = "失敗";
+          }
+          wrap.appendChild(resultCard({ title: file.name, error: `${err.message}` }));
+        }
+      }
+      note().textContent = "完成";
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------------- local server engine ---------------- */
+
+  async function runServer() {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f.file, f.file.name));
     fd.append("ocr_mode", PS.$("#ocr-mode").value);
@@ -117,8 +202,7 @@
       data.files.forEach((f, i) => {
         const row = rows[i];
         if (!row) return;
-        const pct = f.status === "done" ? 100 : f.progress || 0;
-        PS.progressRow(row, pct, f.message || "");
+        PS.progressRow(row, f.status === "done" ? 100 : f.progress || 0, f.message || "");
         const bar = row.querySelector(".bar");
         const sub = row.querySelector(".fsub");
         if (f.status === "done") { bar.classList.add("done"); sub.className = "fsub ok"; }
@@ -130,7 +214,7 @@
 
       if (data.state === "done" || data.state === "error") {
         setBusy(false);
-        renderResults(data);
+        renderServerResults(data);
         clearTimeout(polling);
         return;
       }
@@ -139,7 +223,7 @@
     tick();
   }
 
-  function renderResults(data) {
+  function renderServerResults(data) {
     const wrap = PS.$("#results-convert");
     wrap.innerHTML = "";
 
@@ -160,50 +244,35 @@
     }
 
     data.files.forEach((f) => {
-      const el = document.createElement("div");
-      el.className = "result" + (f.status === "error" ? " error" : "");
       if (f.status === "error") {
-        el.innerHTML = `
-          <div class="r-ico">!</div>
-          <div class="r-body">
-            <div class="r-title">${PS.escape(f.name)}</div>
-            <div class="r-sub">${PS.escape(f.message || "轉換失敗")}</div>
-          </div>`;
-        wrap.appendChild(el);
+        wrap.appendChild(resultCard({ title: f.name, error: f.message || "轉換失敗" }));
         return;
       }
-      const s = f.result.stats || {};
-      const chips = [
-        `${s.pages || 0} 頁`,
-        s.ocr_pages ? `OCR ${s.ocr_pages} 頁` : null,
-        `${s.text_lines || 0} 段文字`,
-        s.images ? `${s.images} 張圖片` : null,
-        s.equations ? `${s.equations} 條方程式` : null,
-        s.equations_as_image ? `${s.equations_as_image} 條數式以圖片保留` : null,
-        PS.fmtSize(s.size),
-      ]
-        .filter(Boolean)
-        .map((t) => `<span class="chip${/圖片保留/.test(t) ? " warn" : ""}">${PS.escape(t)}</span>`)
-        .join("");
-
-      el.innerHTML = `
-        <div class="r-ico">✓</div>
-        <div class="r-body">
-          <div class="r-title">${PS.escape(f.result.filename)}</div>
-          <div class="chips">${chips}</div>
-        </div>
-        <button class="btn primary">下載 .docx</button>`;
-      el.querySelector("button").addEventListener("click", () =>
-        PS.downloadUrl(PS.apiUrl(f.result.download), f.result.filename)
+      wrap.appendChild(
+        resultCard({
+          title: f.name,
+          filename: f.result.filename,
+          stats: f.result.stats,
+          url: PS.apiUrl(f.result.download),
+        })
       );
-      if (s.warnings && s.warnings.length) {
-        const box = document.createElement("div");
-        box.className = "warnbox";
-        box.textContent = "提醒：\n" + s.warnings.slice(0, 6).join("\n");
-        el.querySelector(".r-body").appendChild(box);
-      }
-      wrap.appendChild(el);
     });
+  }
+
+  /* ---------------- entry ---------------- */
+
+  async function start() {
+    if (!files.length) return;
+    PS.$("#results-convert").innerHTML = "";
+    if (PS.engine === "browser") {
+      await runBrowser();
+      return;
+    }
+    if (PS.engine === "server") {
+      await runServer();
+      return;
+    }
+    PS.toast("找不到可用的轉檔引擎，請確認 vendor/ 目錄完整", "err");
   }
 
   document.addEventListener("DOMContentLoaded", () => {

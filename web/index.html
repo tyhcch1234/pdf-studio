@@ -48,7 +48,7 @@
     <div class="card">
       <div class="card-head">
         <h2>轉換為可編輯的 Word</h2>
-        <p>文字轉成 Word 文字、圖片原樣保留、數式轉成 Word 方程式（可用方程式編輯器修改）。</p>
+        <p>文字轉成 Word 文字、圖片原樣保留。若本機有執行 <code>server.py</code> 會自動使用它（數式還可轉成 Word 方程式），否則直接用瀏覽器內建引擎，不需要任何伺服器。</p>
       </div>
 
       <div class="dropzone" id="drop-convert" tabindex="0" role="button">
@@ -92,20 +92,9 @@
         </label>
       </div>
 
-      <details class="api-panel" id="api-panel">
-        <summary>轉檔服務設定（PDF 轉 Word 需要後端）</summary>
-        <div class="api-row">
-          <input type="url" id="api-input" class="text-input api-input"
-                 placeholder="https://your-service.onrender.com" />
-          <button class="btn ghost" id="api-save">儲存並測試</button>
-          <span class="api-state" id="api-state"></span>
-        </div>
-        <p class="api-hint">
-          合併與 A3 切割不需要後端。轉 Word 需要執行本專案的 <code>server.py</code>，
-          或部署到 Render／Railway／Hugging Face Spaces 後把網址貼在這裡。
-          設定會存在此瀏覽器。
-        </p>
-      </details>
+      <p class="engine-note" id="engine-note">
+        轉檔引擎：偵測中…
+      </p>
 
       <div class="actions">
         <button class="btn primary" id="btn-convert" disabled>
@@ -221,15 +210,19 @@
 </main>
 
 <footer class="foot">
-  <span>PDF 轉 Word 在本機伺服器處理；合併與分割完全在瀏覽器內完成。</span>
+  <span>所有處理都在你的電腦上：轉 Word 使用瀏覽器內建引擎（或本機 server.py），合併與分割也在瀏覽器完成。</span>
 </footer>
 
 <div class="toast-wrap" id="toast-wrap"></div>
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="js/config.js"></script>
 <script src="js/common.js"></script>
+<script src="js/docx-builder.js"></script>
+<script src="js/browser-convert.js"></script>
 <script src="js/convert.js"></script>
 <script src="js/merge.js"></script>
 <script src="js/split.js"></script>
