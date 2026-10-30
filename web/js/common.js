@@ -163,6 +163,12 @@
       PS.caps = { ocr: browserReady, formula: false, offline: true };
       PS.engine = browserReady ? "browser" : "none";
       if (browserReady) {
+        const fsel = PS.$("#formula-mode");
+        if (fsel) {
+          fsel.value = "off";
+          fsel.disabled = true;
+          fsel.title = "瀏覽器內建引擎無法產生 Word 方程式";
+        }
         ocr.textContent = "瀏覽器內建：就緒";
         ocr.className = "cap-pill ok";
         fml.textContent = "無需伺服器";
