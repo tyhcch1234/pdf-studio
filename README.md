@@ -1,5 +1,25 @@
 # PDF Studio
 
+## 只要一個檔案：`pdf_studio.py`
+
+下載這個檔案就能用，不必整個資料夾、不需要網頁：
+
+```bash
+pip install pymupdf python-docx numpy pillow rapidocr-onnxruntime onnxruntime
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install pix2tex latex2mathml mathml2omml
+
+python3 pdf_studio.py              # 開視窗（三個功能）
+python3 pdf_studio.py --check      # 只檢查環境
+python3 pdf_studio.py a.pdf b.pdf  # 直接把 PDF 轉成 Word
+```
+
+用的是完整 Python 管線：RapidOCR 做 OCR、pix2tex 辨識數式、python-docx 產生
+**真正的 Word 方程式**，圖片與閱讀順序也會保留。
+
+`pdf_studio.py` 由 `python3 build_single.py` 從 `pipeline/` 自動產生，改動請改前者。
+
+
 Local web app with three PDF tools:
 
 | 工具 | 說明 | 處理位置 |
