@@ -160,22 +160,24 @@
       }
       return PS.caps;
     } catch (err) {
-      PS.caps = { ocr: browserReady, formula: false, offline: true };
+      const mathReady = !!(browserReady && PS.MathOMML && PS.MathDetect);
+      PS.caps = { ocr: browserReady, formula: mathReady, offline: true };
       PS.engine = browserReady ? "browser" : "none";
       if (browserReady) {
         const fsel = PS.$("#formula-mode");
         if (fsel) {
-          fsel.value = "off";
-          fsel.disabled = true;
-          fsel.title = "瀏覽器內建引擎無法產生 Word 方程式";
+          fsel.disabled = false;
+          fsel.title = mathReady ? "數式辨識成 Word 方程式（瀏覽器內建）" : "此瀏覽器無法執行數式辨識";
+          if (!mathReady) fsel.value = "off";
         }
         ocr.textContent = "瀏覽器內建：就緒";
         ocr.className = "cap-pill ok";
-        fml.textContent = "無需伺服器";
-        fml.className = "cap-pill ok";
+        fml.textContent = mathReady ? "數式辨識：瀏覽器內建" : "數式辨識：不可用";
+        fml.className = "cap-pill " + (mathReady ? "ok" : "bad");
         if (noteEl) {
-          noteEl.textContent =
-            "轉檔引擎：瀏覽器內建（OCR 與 Word 都在這個頁面完成，不上傳、不需要伺服器）。數式會保留為文字或圖片，不會變成 Word 方程式。";
+          noteEl.textContent = mathReady
+            ? "轉檔引擎：瀏覽器內建（OCR、數式辨識與 Word 都在這個頁面完成，不上傳、不需要伺服器）。數式會轉成可編輯的 Word 方程式。"
+            : "轉檔引擎：瀏覽器內建（OCR 與 Word 都在這個頁面完成）。數式會保留為文字或圖片。";
         }
       } else {
         ocr.textContent = "引擎未就緒";

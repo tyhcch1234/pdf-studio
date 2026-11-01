@@ -6,39 +6,30 @@
 
   const CFG = {
     textThreshold: 25, // fewer characters than this on a page => OCR
-    renderScale: 2.0, // canvas scale for OCR and figure crops
+    figureScale: 2.0, // canvas scale for figure crops (~144 dpi)
     analysis: 4, // downsample factor for figure detection
+    ocrDpi: 200, // render resolution handed to the OCR engine
+    maxPixels: 40e6, // hard ceiling for one rendered page
   };
 
-  let workerPromise = null;
-
-  function getOcrWorker(onStatus) {
-    if (!workerPromise) {
-      workerPromise = Tesseract.createWorker("eng+chi_tra", 1, {
-        workerPath: "vendor/tesseract/worker.min.js",
-        corePath: "vendor/tesseract/tesseract-core-simd.wasm.js",
-        langPath: "vendor/tesseract/lang",
-        workerBlobURL: false,
-        logger: (m) => {
-          if (onStatus && m.status === "recognizing text") onStatus(m.progress);
-        },
-      }).catch((err) => {
-        workerPromise = null;
-        throw err;
-      });
-    }
-    return workerPromise;
-  }
-
   function renderPage(page, scale) {
-    const vp = page.getViewport({ scale });
+    let vp = page.getViewport({ scale });
+    // very large pages (A3 at 400 dpi) would blow the tab's memory budget
+    const pixels = vp.width * vp.height;
+    let used = scale;
+    if (pixels > CFG.maxPixels) {
+      used = scale * Math.sqrt(CFG.maxPixels / pixels);
+      vp = page.getViewport({ scale: used });
+    }
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(vp.width));
     canvas.height = Math.max(1, Math.ceil(vp.height));
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    return page.render({ canvasContext: ctx, viewport: vp }).promise.then(() => ({ canvas, vp }));
+    return page
+      .render({ canvasContext: ctx, viewport: vp })
+      .promise.then(() => ({ canvas, vp, scale: used }));
   }
 
   /* ---------------- text layer ---------------- */
@@ -200,6 +191,21 @@
     return c;
   }
 
+  /** keep figure PNGs at a sane density when OCR asked for a 300 dpi canvas */
+  function fitCanvas(canvas, ratio) {
+    if (ratio >= 0.99) return canvas;
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(canvas.width * ratio));
+    c.height = Math.max(1, Math.round(canvas.height * ratio));
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, 0, 0, c.width, c.height);
+    return c;
+  }
+
   function canvasToPng(canvas) {
     return new Promise((resolve) =>
       canvas.toBlob(async (blob) => {
@@ -231,7 +237,9 @@
     }
     if (ink < 120) return { figures: [], dropped: new Set() };
 
-    const textBoxes = elements.filter((e) => e.kind === "text").map((e) => e.bbox);
+    // everything that is already represented as content (text or equation)
+    // must not leak into a figure crop
+    const textBoxes = elements.filter((e) => e.kind !== "image").map((e) => e.bbox);
     const scaled = textBoxes.map((b) => [b[0] * scale / f, b[1] * scale / f, b[2] * scale / f, b[3] * scale / f]);
     mask = blankMask(mask, aw, ah, scaled, 1);
     if (mask.reduce((a, v) => a + v, 0) < 60) return { figures: [], dropped: new Set() };
@@ -298,7 +306,8 @@
         if (density < 0.1) continue; // ruled table / frame: keep the words
         inside.forEach((i) => dropped.add(i)); // chart labels live in the picture
       }
-      figures.push({ kind: "image", bbox: pt, png: await canvasToPng(cropCanvas(canvas, b)) });
+      const crop = fitCanvas(cropCanvas(canvas, b), Math.min(1, 2.6 / scale));
+      figures.push({ kind: "image", bbox: pt, png: await canvasToPng(crop) });
     }
     return { figures, dropped };
   }
@@ -412,9 +421,21 @@
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
 
     const builder = new PS.DocxBuilder();
-    const stats = { pages: pdf.numPages, ocr_pages: 0, text_lines: 0, images: 0, size: 0, warnings: [] };
+    const stats = {
+      pages: pdf.numPages,
+      ocr_pages: 0,
+      text_lines: 0,
+      images: 0,
+      equations: 0,
+      equations_lowconf: 0,
+      ocr_confidence: 0,
+      ocr_retried: 0,
+      size: 0,
+      warnings: [],
+    };
     const useOcr = opts.ocr !== "never";
-    let worker = null;
+    const wantMath = opts.formula !== "off" && !!(PS.MathDetect && PS.MathDetect.available());
+    const confidences = [];
 
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
@@ -428,36 +449,87 @@
 
       const tc = await page.getTextContent();
       let items = textLines(tc, vp1);
+      let glyphs = wantMath ? PS.MathDetect.tokensFromText(tc, vp1) : null;
+      let mathFromOcr = false;
       const chars = items.reduce((n, l) => n + l.runs.reduce((m, r) => m + r.text.trim().length, 0), 0);
 
+      // one render per page, shared by OCR, maths and figure detection; the
+      // canvas is only re-rendered when a stage needs a sharper version
       let canvas = null;
+      let canvasScale = 0;
+      async function ensureCanvas(minScale) {
+        if (canvas && canvasScale >= minScale - 1e-6) return canvas;
+        const want = Math.max(minScale, canvasScale);
+        const rendered = await renderPage(page, want);
+        canvas = rendered.canvas;
+        canvasScale = rendered.scale;
+        return canvas;
+      }
+
       const needOcr = useOcr && (opts.ocr === "always" || chars < CFG.textThreshold);
       if (needOcr) {
+        const dpi = Math.round(opts.dpi || CFG.ocrDpi);
         onProgress(p - 1, pdf.numPages, `第 ${p}/${pdf.numPages} 頁： OCR 辨識中`);
-        if (!worker) worker = await getOcrWorker();
-        const rendered = await renderPage(page, CFG.renderScale);
-        canvas = rendered.canvas;
-        const { data: res } = await worker.recognize(canvas);
-        const scale = CFG.renderScale;
-        items = (res.lines || [])
-          .map((l) => {
-            const b = l.bbox;
-            const size = Math.max(6, ((b.y1 - b.y0) / scale) * 0.82);
-            return {
-              kind: "text",
-              bbox: [b.x0 / scale, b.y0 / scale, b.x1 / scale, b.y1 / scale],
-              runs: [{ text: l.text.replace(/\s+$/, ""), size, color: [0, 0, 0] }],
-            };
-          })
-          .filter((l) => l.runs[0].text.trim());
-        if (items.length) stats.ocr_pages += 1;
-        else stats.warnings.push(`第 ${p} 頁 OCR 沒有辨識出文字`);
+        const ocr = await PS.OcrEngine.recognizePage(page, {
+          dpi,
+          lang: opts.ocrLang || "auto",
+          render: (scale) => renderPage(page, scale),
+          onProgress: (frac) =>
+            onProgress(
+              p - 1,
+              pdf.numPages,
+              `第 ${p}/${pdf.numPages} 頁： OCR 辨識中 ${Math.round(frac * 100)}%`
+            ),
+        });
+        canvas = ocr.raw;
+        canvasScale = ocr.scale;
+        if (ocr.lines.length) {
+          items = ocr.lines;
+          stats.ocr_pages += 1;
+          confidences.push(ocr.confidence);
+          if (ocr.retried) stats.ocr_retried += 1;
+          if (ocr.confidence && ocr.confidence < 55) {
+            stats.warnings.push(
+              `第 ${p} 頁 OCR 辨識信心偏低（${ocr.confidence}%），可改用 300 dpi 或確認語言設定`
+            );
+          }
+        } else if (items.length) {
+          // OCR found nothing but the PDF has a text layer: keep the original
+          stats.warnings.push(`第 ${p} 頁 OCR 沒有辨識出文字，改用 PDF 內建文字層`);
+        } else {
+          stats.warnings.push(`第 ${p} 頁 OCR 沒有辨識出文字`);
+        }
+        if (wantMath) {
+          const sym = PS.MathDetect.tokensFromOcr(ocr.res, ocr.scale);
+          if (sym.length) {
+            glyphs = sym;
+            mathFromOcr = true;
+          }
+        }
+      }
+
+      // maths: recognised line by line, then removed from the text stream
+      if (wantMath && glyphs && glyphs.length) {
+        await ensureCanvas(CFG.figureScale);
+        try {
+          const found = PS.MathDetect.detect(canvas, glyphs, {
+            scale: canvasScale,
+            strict: mathFromOcr,
+          });
+          if (found.equations.length) {
+            items = PS.MathDetect.removeCovered(items, found.covered).concat(found.equations);
+            stats.equations += found.equations.length;
+          }
+          stats.equations_lowconf += found.rejected;
+        } catch (err) {
+          stats.warnings.push(`第 ${p} 頁數式辨識失敗：${err.message}`);
+        }
       }
 
       // figures: whatever ink is left once the text is masked out
       if (opts.images !== false) {
-        if (!canvas) canvas = (await renderPage(page, CFG.renderScale)).canvas;
-        const found = await findFigures(canvas, items, CFG.renderScale);
+        await ensureCanvas(CFG.figureScale);
+        const found = await findFigures(canvas, items, canvasScale);
         items = items.filter((_, i) => !found.dropped.has(i)).concat(found.figures);
       }
 
@@ -470,6 +542,15 @@
           if (!el.runs.some((r) => r.text.trim())) continue;
           builder.paragraph(el.runs, { before, indent, pageW: W, pageH: H });
           stats.text_lines += 1;
+        } else if (el.kind === "equation" && el.omml) {
+          const centred = Math.abs((el.bbox[0] + el.bbox[2]) / 2 - W / 2) < W * 0.06;
+          builder.equation(el.omml, {
+            before,
+            indent: centred ? 0 : indent,
+            center: centred,
+            pageW: W,
+            pageH: H,
+          });
         } else if (el.png) {
           builder.image(el.png, el.bbox[2] - el.bbox[0], el.bbox[3] - el.bbox[1], {
             before,
@@ -484,8 +565,12 @@
       page.cleanup();
     }
 
-    if (worker) await worker.terminate().catch(() => {});
-    workerPromise = null;
+    await PS.OcrEngine.release();
+    if (confidences.length) {
+      stats.ocr_confidence = Math.round(
+        confidences.reduce((a, b) => a + b, 0) / confidences.length
+      );
+    }
 
     onProgress(pdf.numPages, pdf.numPages, "產生 Word 檔");
     const blob = await builder.build(file.name.replace(/\.pdf$/i, ""));
@@ -493,5 +578,9 @@
     return { blob, stats };
   }
 
-  PS.BrowserEngine = { convertPdf, available: () => !!(window.pdfjsLib && window.JSZip && window.Tesseract) };
+  PS.BrowserEngine = {
+    convertPdf,
+    available: () =>
+      !!(window.pdfjsLib && window.JSZip && PS.OcrEngine && PS.OcrEngine.available()),
+  };
 })();

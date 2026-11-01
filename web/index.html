@@ -48,7 +48,7 @@
     <div class="card">
       <div class="card-head">
         <h2>轉換為可編輯的 Word</h2>
-        <p>文字轉成 Word 文字、圖片原樣保留。若本機有執行 <code>server.py</code> 會自動使用它（數式還可轉成 Word 方程式），否則直接用瀏覽器內建引擎，不需要任何伺服器。</p>
+        <p>文字轉成 Word 文字、圖片原樣保留。數式（含上下標、分數、根號、Σ／∫）會辨識成<strong>可編輯的 Word 方程式</strong>；全流程在瀏覽器完成，檔案不上傳。若本機有執行 <code>server.py</code> 會自動改用它的 pix2tex 引擎。</p>
       </div>
 
       <div class="dropzone" id="drop-convert" tabindex="0" role="button">
@@ -72,6 +72,14 @@
           </select>
         </label>
         <label class="opt">
+          <span>OCR 語言</span>
+          <select id="ocr-lang">
+            <option value="auto" selected>自動（繁中＋英文）</option>
+            <option value="simp">簡體中文＋英文</option>
+            <option value="eng">英文</option>
+          </select>
+        </label>
+        <label class="opt">
           <span>數式辨識</span>
           <select id="formula-mode">
             <option value="auto" selected>開啟（轉成 Word 方程式）</option>
@@ -79,11 +87,11 @@
           </select>
         </label>
         <label class="opt">
-          <span>圖片解析度</span>
+          <span>解析度（圖片／OCR）</span>
           <select id="dpi">
-            <option value="150">150 dpi（小檔）</option>
+            <option value="150">150 dpi（小檔、最快）</option>
             <option value="200" selected>200 dpi（建議）</option>
-            <option value="300">300 dpi（清晰）</option>
+            <option value="300">300 dpi（清晰、掃描件較準）</option>
           </select>
         </label>
         <label class="opt switch">
@@ -222,6 +230,9 @@
 <script src="js/config.js"></script>
 <script src="js/common.js"></script>
 <script src="js/docx-builder.js"></script>
+<script src="js/math-omml.js"></script>
+<script src="js/math-detect.js"></script>
+<script src="js/ocr-engine.js"></script>
 <script src="js/browser-convert.js"></script>
 <script src="js/convert.js"></script>
 <script src="js/merge.js"></script>

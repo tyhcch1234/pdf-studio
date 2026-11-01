@@ -113,6 +113,22 @@
       this.paras.push(`<w:p><w:pPr>${pPr.join("")}</w:pPr>${drawing}</w:p>`);
     }
 
+    /** a native Word equation; `omml` is the inner content of <m:oMath> */
+    equation(omml, opts) {
+      opts = opts || {};
+      this._section(opts.pageW || this.currentSize[0], opts.pageH || this.currentSize[1]);
+      const pPr = [
+        `<w:spacing w:before="${Math.round((opts.before || 0) * TWIP_PER_PT)}" w:after="${Math.round(
+          (opts.after || 0) * TWIP_PER_PT
+        )}" w:line="240" w:lineRule="auto"/>`,
+      ];
+      if (opts.indent) pPr.push(`<w:ind w:left="${Math.round(opts.indent * TWIP_PER_PT)}"/>`);
+      if (opts.center) pPr.push(`<w:jc w:val="center"/>`);
+      this.paras.push(
+        `<w:p><w:pPr>${pPr.join("")}</w:pPr><m:oMathPara><m:oMath>${omml}</m:oMath></m:oMathPara></w:p>`
+      );
+    }
+
     pageBreak() {
       this.paras.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
     }
@@ -194,6 +210,7 @@ ${mediaRels}
         "word/document.xml",
         `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"

@@ -68,6 +68,9 @@
     return [
       `${s.pages || 0} 頁`,
       s.ocr_pages ? `OCR ${s.ocr_pages} 頁` : null,
+      s.ocr_pages && s.ocr_confidence
+        ? `辨識信心 ${s.ocr_confidence}%${s.ocr_confidence < 70 ? "（偏低）" : ""}`
+        : null,
       `${s.text_lines || 0} 段文字`,
       s.images ? `${s.images} 張圖片` : null,
       s.equations ? `${s.equations} 條方程式` : null,
@@ -75,7 +78,10 @@
       s.size ? PS.fmtSize(s.size) : null,
     ]
       .filter(Boolean)
-      .map((t) => `<span class="chip${/圖片保留/.test(t) ? " warn" : ""}">${PS.escape(t)}</span>`)
+      .map(
+        (t) =>
+          `<span class="chip${/圖片保留|偏低/.test(t) ? " warn" : ""}">${PS.escape(t)}</span>`
+      )
       .join("");
   }
 
@@ -120,6 +126,9 @@
     const opts = {
       ocr: PS.$("#ocr-mode").value,
       images: PS.$("#keep-images").checked,
+      formula: PS.$("#formula-mode").value,
+      dpi: Number(PS.$("#dpi").value) || 200,
+      ocrLang: PS.$("#ocr-lang") ? PS.$("#ocr-lang").value : "auto",
     };
     setBusy(true);
     try {
@@ -168,6 +177,7 @@
     fd.append("formula_mode", PS.$("#formula-mode").value);
     fd.append("keep_images", PS.$("#keep-images").checked ? "true" : "false");
     fd.append("dpi", PS.$("#dpi").value);
+    fd.append("ocr_lang", PS.$("#ocr-lang") ? PS.$("#ocr-lang").value : "auto");
 
     setBusy(true);
     note().textContent = "上傳並解析中…";
